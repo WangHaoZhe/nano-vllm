@@ -1,50 +1,77 @@
 import torch
-from torch import nn
+import torch.nn as nn
+# from omniserve_backend import layernorm_ops
+from nanovllm.kernels import layernorm_triton as layernorm_ops
 
 
 class RMSNorm(nn.Module):
 
     def __init__(
-        self,
-        hidden_size: int,
-        eps: float = 1e-6,
+        self, hidden_size: int, eps: float = 1e-6, use_quant: bool = False
     ) -> None:
         super().__init__()
-        self.eps = eps
         self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+        self.use_quant = use_quant
 
-    @torch.compile
-    def rms_forward(
-        self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
-        orig_dtype = x.dtype
-        x = x.float()
-        var = x.pow(2).mean(dim=-1, keepdim=True)
-        x.mul_(torch.rsqrt(var + self.eps))
-        x = x.to(orig_dtype).mul_(self.weight)
-        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = (
+            torch.empty_like(x, dtype=torch.int8)
+            if self.use_quant
+            else torch.empty_like(x)
+        )
+        layernorm_ops.rms_norm(
+            out, x, self.weight.data, self.variance_epsilon, self.use_quant
+        )
+        return out
 
-    @torch.compile
-    def add_rms_forward(
-        self,
-        x: torch.Tensor,
-        residual: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        orig_dtype = x.dtype
-        x = x.float().add_(residual.float())
-        residual = x.to(orig_dtype)
-        var = x.pow(2).mean(dim=-1, keepdim=True)
-        x.mul_(torch.rsqrt(var + self.eps))
-        x = x.to(orig_dtype).mul_(self.weight)
-        return x, residual
 
-    def forward(
+class RMSNormGeneral(nn.Module):
+
+    def __init__(
         self,
-        x: torch.Tensor,
-        residual: torch.Tensor | None = None,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        if residual is None:
-            return self.rms_forward(x)
+        hidden_size: int,
+        act_sum: bool = False,  # for per-channel weight quant, we need to pre-compute the sum of activation
+        eps: float = 1e-6,
+        use_per_token_quant: bool = False,
+    ) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+        self.use_per_token_quant = use_per_token_quant
+        if act_sum:
+            self.forward = self.forward_with_act_sum
         else:
-            return self.add_rms_forward(x, residual)
+            self.forward = self.forward_wo_act_sum
+
+    def forward_wo_act_sum(
+        self,
+        x: torch.Tensor,
+        quantized_hidden_states_buffer: torch.Tensor,
+        quantized_scale_buffer: torch.Tensor,
+        quantized_sum_buffer: torch.Tensor = None,
+    ) -> torch.Tensor:
+        # quantized_sum_buffer is not used, only to keep the consistency of the interface
+        layernorm_ops.rms_norm_general(
+            quantized_hidden_states_buffer,
+            x,
+            self.weight.data,
+            quantized_scale_buffer,
+            self.variance_epsilon,
+        )
+
+    def forward_with_act_sum(
+        self,
+        x: torch.Tensor,
+        quantized_hidden_states_buffer: torch.Tensor,
+        quantized_scale_buffer: torch.Tensor,
+        quantized_sum_buffer: torch.Tensor,
+    ) -> torch.Tensor:
+        layernorm_ops.rms_norm_general_fuse_sum(
+            quantized_hidden_states_buffer,
+            x,
+            self.weight.data,
+            quantized_sum_buffer,
+            quantized_scale_buffer,
+            self.variance_epsilon,
+        )
