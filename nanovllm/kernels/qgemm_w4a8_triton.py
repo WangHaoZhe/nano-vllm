@@ -95,8 +95,8 @@ def gemm_w4a8_kernel(
     pid_m = first_pid_m + (pid % group_size_m)
     pid_n = (pid % num_pid_in_group) // group_size_m
 
-    offs_am = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)) % M
-    offs_bn = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)) % N
+    offs_am = tl.max_contiguous(tl.multiple_of((pid_m * BLOCK_M + tl.arange(0, BLOCK_M)), 8), 8)
+    offs_bn = tl.max_contiguous(tl.multiple_of((pid_n * BLOCK_N + tl.arange(0, BLOCK_N)), 8), 8)
 
     # Pre-compute N indices decomposition for B loading (CUDA packing layout)
     # Layout: N_blk, K_blk, N_sub3, K_sub2, K_sub1, N_sub2, K_sub3, N_sub1(packed)
@@ -207,13 +207,28 @@ def gemm_forward_triton(in_feats, kernel, wscales, ascales, w_szs, a_ssums, out_
         K // 2,
     ), f"kernel shape mismatch: need {(N, K // 2)}, got {kernel.shape}"
 
-    BLOCK_M = 32
-    BLOCK_N = 32
-    BLOCK_K = 64
-    GROUP_SIZE_M = 8
-    num_stages = 4
-    num_warps = 2
-
+    if (M <= 128):
+        BLOCK_M = 64
+        BLOCK_N = 32
+        BLOCK_K = 256
+        GROUP_SIZE_M = 8
+        num_stages = 1
+        num_warps = 4
+    elif (128 < M <= 256):
+        BLOCK_M = 64
+        BLOCK_N = 64
+        BLOCK_K = 128
+        GROUP_SIZE_M = 8
+        num_stages = 1
+        num_warps = 4
+    else:
+        BLOCK_M = 128
+        BLOCK_N = 128
+        BLOCK_K = 64
+        GROUP_SIZE_M = 8
+        num_stages = 4
+        num_warps = 4
+    
     grid = lambda META: (
         triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
     )
