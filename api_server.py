@@ -28,6 +28,7 @@ async def chat_completions(request: ChatCompletionRequest):
         request.messages,
         tokenize=False,
         add_generation_prompt=True,
+        enable_thinking=False  # only add this for qwen3
     )
 
     sampling_params = SamplingParams(max_tokens=request.max_tokens)
@@ -62,7 +63,8 @@ async def chat_completions(request: ChatCompletionRequest):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="../Llama-3-8B-Instruct-QServe")
+    # parser.add_argument("--model", type=str, default="../Llama-3-8B-Instruct-QServe")
+    parser.add_argument("--model", type=str, default="../Qwen3-8B-QServe")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8123)
     args = parser.parse_args()

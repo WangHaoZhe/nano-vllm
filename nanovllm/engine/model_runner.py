@@ -6,6 +6,7 @@ from multiprocessing.shared_memory import SharedMemory
 
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence
+from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.models.llama import LlamaForCausalLM
 from nanovllm.layers.sampler import Sampler
 from nanovllm.utils.context import set_context, get_context, reset_context
@@ -13,10 +14,15 @@ from nanovllm.utils.loader import load_model
 
 
 class ModelRunner:
-
+    model_dict = {
+        "llama": LlamaForCausalLM,
+        "qwen3": Qwen3ForCausalLM,
+    }
+    
     def __init__(self, config: Config, rank: int, event: Event | list[Event]):
         self.config = config
         hf_config = config.hf_config
+        self.model_type = hf_config.model_type
         self.block_size = config.kvcache_block_size
         self.enforce_eager = config.enforce_eager
         self.world_size = config.tensor_parallel_size
@@ -26,9 +32,10 @@ class ModelRunner:
         dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank)
         default_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(hf_config.torch_dtype)
+        # torch.set_default_dtype(hf_config.torch_dtype)
+        torch.set_default_dtype(torch.float16)
         torch.set_default_device("cuda")
-        self.model = LlamaForCausalLM(hf_config).half().to(torch.device("cuda"))
+        self.model = ModelRunner.model_dict[self.model_type](hf_config).half().to(torch.device("cuda"))
         # load_model(self.model, config.model)
         self.model.load_weights(config.model)
         self.sampler = Sampler()

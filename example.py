@@ -4,7 +4,8 @@ from transformers import AutoTokenizer
 
 
 def main():
-    path = os.path.expanduser("../Llama-3-8B-Instruct-QServe")
+    # path = os.path.expanduser("../Llama-3-8B-Instruct-QServe")
+    path = os.path.expanduser("../Qwen3-8B-QServe")
     tokenizer = AutoTokenizer.from_pretrained(path)
     llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
 
@@ -18,6 +19,7 @@ def main():
             [{"role": "user", "content": prompt}],
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=False  # only add this for qwen3
         )
         for prompt in prompts
     ]

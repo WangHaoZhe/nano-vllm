@@ -1,5 +1,5 @@
-MODEL_NAME="mit-han-lab/Llama-3-8B-Instruct-QServe"
-# MODEL_NAME="Meta-Llama-3-8B-Instruct"
+# MODEL_NAME="mit-han-lab/Llama-3-8B-Instruct-QServe"
+MODEL_NAME="AlbertWangSJTU/Qwen3-8B-QServe"
 MODEL_PATH="http://localhost:8123/v1/chat/completions"
 TOKENIZER_PATH=${MODEL_PATH}
 
